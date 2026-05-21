@@ -153,3 +153,6 @@ async def evaluate_answer(data: EvaluateAnswerRequest):
             "stage": data.currentStage,
             "is_success": False
         }
+
+# Vercel Serverless Functions 必须导出 handler
+handler = app
