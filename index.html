@@ -1,0 +1,77 @@
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
+
+app = FastAPI()
+
+# 1. 跨域配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 2. 挂载静态文件（关键：让Railway能找到你的index.html）
+app.mount("/", StaticFiles(directory=".", html=True), name="static")
+
+# 3. 兜底根路径路由，确保一定返回index.html
+@app.get("/")
+async def read_index():
+    return FileResponse("index.html")
+
+# 4. 健康检查接口（不跟根路径冲突）
+@app.get("/health")
+async def health_check():
+    return {"status": "success", "message": "后端正常运行"}
+
+# 5. 你的请求模型
+class EmotionSceneRequest(BaseModel):
+    age: int
+    emotion: str
+
+# 6. 你的核心接口（保留你原来的call_fastgpt逻辑）
+def call_fastgpt(prompt: str):
+    import requests
+    api_key = os.getenv("FASTGPT_API_KEY")
+    api_url = os.getenv("FASTGPT_API_URL")
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "gpt-3.5-turbo",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    
+    response = requests.post(api_url, headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+@app.post("/api/generate_scene")
+async def generate_scene(request: EmotionSceneRequest):
+    prompt = f"""
+你现在是一名儿童情绪引导老师，专为{request.age}岁低龄儿童编写{request.emotion}情绪小故事
+要求：
+1. 语言简单直白，短句为主，避免复杂词汇
+2. 故事简短，3-5句话讲完，贴近校园、家庭等孩子熟悉的场景
+3. 明确表达用户指定的情绪，结尾温和引导孩子正确认识和表达情绪
+4. 全程使用标准中文，语气亲切温柔，适合儿童阅读
+    """
+    story = call_fastgpt(prompt)
+    return {"scene": story}
+
+# 7. 启动配置（兼容本地和Railway）
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
